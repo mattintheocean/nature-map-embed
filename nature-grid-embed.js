@@ -40,6 +40,7 @@ window.LCDB.rle = "/w7+B/8K/gr/Af4F/wH+If8E/hT/Af4H/wL+C/8C/gf/Af4B/wH+jP8B/gz/C
         yellow:'#e8fb96', ltblue:'#c6fcee', blue:'#6cf8d8', deepblue:'#52f4de' },
     // per-type ramps (degraded -> thriving)
     ramps:{
+      [0]: ['#a6f89e', '#86fae0', '#6cf8d8', '#52f4de'],                          // water: lightest blue pulled towards the others
       [5]: ['#5cf496', '#48ec8c', '#3ee688', '#36e084'],                          // native bush
       [1]: ['#96f6ae', '#c6fcee', '#acfabe', '#c0fbcc', '#d6fdf4', '#e0fdf6'],    // urban
       [4]: ['#b4fa9c', '#ccfb98', '#defb96', '#ecfc96'],                          // urban parkland
