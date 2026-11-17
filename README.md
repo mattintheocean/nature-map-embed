@@ -10,13 +10,13 @@ The map without the control panel, for a Webflow section.
 
 ## In Webflow
 
-1. Host `nature-grid-embed.js` somewhere public, such as jsDelivr from a GitHub repo, Netlify or Cloudflare Pages. Webflow's asset uploads don't accept `.js` files.
+1. The file is hosted from the public repo github.com/mattintheocean/nature-map-embed through jsDelivr. The link is pinned to a version tag, so it never changes underneath the live site.
 2. Give the section a height, for example 80vh.
 3. Add a Code Embed inside the section:
 
 ```html
 <div class="nature-map" style="width:100%;height:100%;min-height:480px"></div>
-<script src="https://YOUR-HOST/nature-grid-embed.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/mattintheocean/nature-map-embed@v1.0.0/nature-grid-embed.js" defer></script>
 ```
 
 If more than one page uses the map, the `<script>` line can go in the site's footer code instead. The map only draws on the published site or in Preview, not in the Designer canvas.
@@ -48,3 +48,9 @@ Set these as attributes on the `div`, for example `data-recovery="0.3"`:
 The data credit is required by the CC BY 4.0 licence on the LCDB and Stats NZ data.
 
 From page code, `document.querySelector('.nature-map').__natureMap` exposes `setRecovery(0..1)`, `clearBrush()` and `resetView()`. For example, `setRecovery` could be tied to page scroll.
+
+## Releasing a change
+
+1. Edit `src/nature-grid-map.js`, run `./build.sh`, and check `test.html`.
+2. Commit, then tag a new version and push it: `git tag v1.0.1 && git push origin main v1.0.1`.
+3. Change `@v1.0.0` to the new tag in the Webflow embed and republish.
