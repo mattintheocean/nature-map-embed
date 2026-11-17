@@ -1,0 +1,408 @@
+/*
+ * Nature Return Grid, embed version.
+ * Mounts the interactive Auckland map into every element with class "nature-map" (or a data-nature-map attribute).
+ * Hover (or touch) restores nature, drag pans, pinch or the + / − buttons zoom. Page scrolling is left alone.
+ * Needs window.LCDB (the land cover grid), which the build puts at the top of nature-grid-embed.js.
+ *
+ * Options, as data attributes on the element:
+ *   data-frame="city|region"   starting view (default city)
+ *   data-recovery="0.5"        nature return level, 0 to 1
+ *   data-cell="22"             cell size in px
+ *   data-density="0.5"  data-weight="0.14"  data-texture="0.35"  data-scale="0.35"  data-brush="5"
+ *   data-seed="12345"          fixed pattern (default random on each load)
+ *   data-credit="off"          hide the data credit (only if it is credited elsewhere on the page)
+ *   data-zoom-buttons="off"    hide the + / − buttons
+ */
+(function () {
+  'use strict';
+  const L = window.LCDB;
+  if (!L) { console.warn('nature-map: land cover data (window.LCDB) is missing'); return; }
+
+  // ---------- palette (mint) ----------
+  const P = {
+    bg:['#54f8b8', '#5cfb92', '#78fb9e'],      // water, land, light land patches
+    outside:'#5cfb92',                         // neighbouring regions blend into the mint background
+    bushBg:'#50f28c',                          // native bush sits on a slightly deeper green
+    c:{ black:'#5af694', orange:'#c8fa96', brown:'#a6f89e', dkgreen:'#4cf8a4', ltgreen:'#a4fcae',
+        yellow:'#e8fb96', ltblue:'#c6fcee', blue:'#6cf8d8', deepblue:'#52f4de' },
+    // per-type ramps (degraded -> thriving)
+    ramps:{
+      [5]: ['#5cf496', '#48ec8c', '#3ee688', '#36e084'],                          // native bush
+      [1]: ['#96f6ae', '#c6fcee', '#acfabe', '#c0fbcc', '#d6fdf4', '#e0fdf6'],    // urban
+      [4]: ['#b4fa9c', '#ccfb98', '#defb96', '#ecfc96'],                          // urban parkland
+      [2]: ['#96f8a0', '#b6fa9c', '#cefa98', '#e2fb96'],                          // pasture & crops
+      [3]: ['#86f6a0', '#a6f8a0', '#c2fa9c', '#dafb98'],                          // exotic forest & scrub
+    }
+  };
+  const BG_BLOCK = 2;                              // patch granularity in cells
+
+  // ---------- land types ----------
+  // base: where the type sits on its ramp at 50% return; sens: how far nature return moves it
+  const T = { WATER:0, URBAN:1, RURAL:2, PLANT:3, PARK:4, BUSH:5, WETLAND:6, OUT:255 };
+  const TYPES = {
+    [T.WATER]:   { ramp:['brown', 'ltblue', 'blue', 'deepblue'],            base:0.6,  sens:0.6, dense:0 },
+    [T.URBAN]:   { ramp:['black', 'brown', 'orange', 'dkgreen', 'ltgreen'], base:0.3,  sens:1.0, dense:-0.15 },
+    [T.RURAL]:   { ramp:['orange', 'brown', 'dkgreen', 'ltgreen', 'yellow'],base:0.45, sens:1.0, dense:0 },
+    [T.PLANT]:   { ramp:['brown', 'dkgreen', 'ltgreen', 'yellow'],          base:0.5,  sens:0.9, dense:0.05 },
+    [T.PARK]:    { ramp:['dkgreen', 'ltgreen', 'yellow', 'ltblue'],         base:0.6,  sens:0.8, dense:0.15 },
+    [T.BUSH]:    { ramp:['dkgreen', 'yellow', 'ltblue', 'blue'],            base:0.65, sens:0.7, dense:0.3 },
+    [T.WETLAND]: { ramp:['brown', 'dkgreen', 'ltblue', 'blue'],             base:0.6,  sens:0.8, dense:0.2 },
+  };
+  // LCDB v5 class code -> land type. 255 = sea, 254 = land outside the region.
+  const LCDB_TYPES = {
+    1:T.URBAN, 2:T.PARK, 5:T.URBAN, 6:T.URBAN, 10:T.RURAL, 12:T.RURAL, 16:T.RURAL,
+    20:T.WATER, 21:T.WATER, 22:T.WATER, 30:T.RURAL, 33:T.RURAL, 40:T.RURAL, 41:T.RURAL,
+    45:T.WETLAND, 46:T.WETLAND, 47:T.WETLAND, 50:T.BUSH, 51:T.PLANT, 52:T.BUSH, 54:T.BUSH, 56:T.PLANT, 58:T.BUSH,
+    64:T.PLANT, 68:T.PLANT, 69:T.BUSH, 70:T.WETLAND, 71:T.PLANT, 255:T.WATER, 254:T.OUT
+  };
+  const TYPE_OF = new Uint8Array(256).fill(T.RURAL);
+  for (const k in LCDB_TYPES) TYPE_OF[k] = LCDB_TYPES[k];
+
+  // ---------- land cover grid (NZTM metres) ----------
+  const lc = (() => {
+    const bin = atob(L.rle), out = new Uint8Array(L.w * L.h);
+    for (let i = 0, o = 0; i < bin.length; i += 2) { out.fill(bin.charCodeAt(i), o, o + bin.charCodeAt(i+1)); o += bin.charCodeAt(i+1); }
+    return out;
+  })();
+  function lcAt(wx, wy) {
+    const c = Math.floor((wx - L.x0) / L.res), r = Math.floor((L.y1 - wy) / L.res);
+    return (c < 0 || r < 0 || c >= L.w || r >= L.h) ? 254 : lc[r * L.w + c];
+  }
+  const EXTENT = { x0:L.x0, x1:L.x0 + L.w*L.res, y0:L.y1 - L.h*L.res, y1:L.y1 };
+  const FRAMES = {
+    region: { x0:EXTENT.x0, x1:EXTENT.x1, y0:EXTENT.y0, y1:EXTENT.y1 },
+    city:   { x0:1738000, x1:1782000, y0:5895000, y1:5935000 },   // Waitematā & Manukau harbours
+  };
+
+  // ---------- seeded perlin noise ----------
+  function makeNoise(seed) {
+    let s = seed >>> 0;
+    const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+    const p = Array.from({length:256}, (_, i) => i);
+    for (let i = 255; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+    const perm = new Uint8Array(512); for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+    const fade = t => t*t*t*(t*(t*6-15)+10);
+    const lerp = (a,b,t) => a + (b-a)*t;
+    const grad = (h,x,y) => { const a = (h & 7) * Math.PI / 4; return Math.cos(a)*x + Math.sin(a)*y; };
+    const n2 = (x,y) => {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+      x -= Math.floor(x); y -= Math.floor(y);
+      const u = fade(x), v = fade(y);
+      const a = perm[X]+Y, b = perm[X+1]+Y;
+      return lerp(lerp(grad(perm[a],x,y), grad(perm[b],x-1,y), u),
+                  lerp(grad(perm[a+1],x,y-1), grad(perm[b+1],x-1,y-1), u), v);
+    };
+    // fbm normalised to roughly 0..1
+    return (x,y,oct=3) => {
+      let amp = 1, f = 1, sum = 0, norm = 0;
+      for (let o = 0; o < oct; o++) { sum += n2(x*f, y*f) * amp; norm += amp; amp *= 0.5; f *= 2; }
+      return Math.min(1, Math.max(0, (sum / norm) * 1.4 + 0.5));
+    };
+  }
+
+  // ---------- styles ----------
+  const CSS = `
+.ngm { position:relative; overflow:hidden; min-height:320px; background:${P.bg[1]}; }
+.ngm canvas { position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
+.ngm canvas.ngm-panning { cursor:grabbing; }
+.ngm-zoom { position:absolute; right:12px; bottom:12px; display:flex; flex-direction:column; gap:6px; }
+.ngm-zoom button { width:36px; height:36px; padding:0; margin:0; border:0; border-radius:6px; cursor:pointer;
+  background:rgba(255,255,255,.8); color:#1d6b4a; font:500 22px/36px system-ui, sans-serif; text-align:center;
+  box-shadow:0 1px 3px rgba(20,90,60,.15); transition:background .15s, opacity .15s; }
+.ngm-zoom button:hover { background:#fff; }
+.ngm-zoom button:focus-visible { outline:2px solid #1d6b4a; outline-offset:2px; }
+.ngm-zoom button:disabled { opacity:.4; cursor:default; }
+.ngm-credit { position:absolute; left:10px; bottom:8px; max-width:calc(100% - 80px); pointer-events:none;
+  font:10px/1.3 system-ui, sans-serif; color:rgba(20,90,60,.6); }
+`;
+  function injectCSS() {
+    if (document.getElementById('ngm-style')) return;
+    const st = document.createElement('style'); st.id = 'ngm-style'; st.textContent = CSS;
+    document.head.appendChild(st);
+  }
+
+  // ---------- one map ----------
+  function mount(el) {
+    if (el.__natureMap) return el.__natureMap;
+    injectCSS();
+    const d = el.dataset;
+    const num = (v, def) => (v === undefined || v === '' || isNaN(+v)) ? def : +v;
+    const cfg = {
+      frame: FRAMES[d.frame] ? d.frame : 'city',
+      recovery: num(d.recovery, 0.5), cs: num(d.cell, 22), density: num(d.density, 0.5), weight: num(d.weight, 0.14),
+      texture: num(d.texture, 0.35), scale: num(d.scale, 0.35), brush: num(d.brush, 5),
+      seed: num(d.seed, Math.floor(Math.random() * 1e9)),
+    };
+    const cs = cfg.cs;
+
+    el.classList.add('ngm');
+    const cv = document.createElement('canvas');
+    cv.setAttribute('role', 'img');
+    cv.setAttribute('aria-label', 'Interactive pattern map of the Auckland Region. Move over the map to restore nature.');
+    el.appendChild(cv);
+    const ctx = cv.getContext('2d');
+
+    if (d.credit !== 'off') el.appendChild(Object.assign(document.createElement('div'), { className:'ngm-credit',
+      textContent:'Land cover: LCDB v5.0, Manaaki Whenua – Landcare Research. Boundary: Stats NZ. CC BY 4.0.' }));
+
+    const nA = makeNoise(cfg.seed), nB = makeNoise(cfg.seed ^ 0x9e3779b9), nC = makeNoise(cfg.seed ^ 0x51ed270b);
+    let W = 0, H = 0, dpr = 1, grid = null, touched = false;
+    const view = { cx:0, cy:0, mpp:100 };           // world centre (NZTM) and metres per screen px
+    const MIN_MPP = 5;
+    let maxMpp = 400;
+    const mouse = { x:-1, y:-1 };
+
+    // brush strokes live in world space so they stay put when panning and zooming
+    const BOOST_RES = 200;
+    const BW = Math.ceil((EXTENT.x1 - EXTENT.x0) / BOOST_RES), BH = Math.ceil((EXTENT.y1 - EXTENT.y0) / BOOST_RES);
+    const boost = new Float32Array(BW * BH);
+    function boostAt(wx, wy) {
+      const c = Math.floor((wx - EXTENT.x0) / BOOST_RES), r = Math.floor((EXTENT.y1 - wy) / BOOST_RES);
+      return (c < 0 || r < 0 || c >= BW || r >= BH) ? 0 : boost[r * BW + c];
+    }
+
+    // per-frame cell sample: the visible grid is aligned to world cells of size m metres
+    function sampleGrid() {
+      const m = cs * view.mpp;
+      const left = view.cx - W/2 * view.mpp, top = view.cy + H/2 * view.mpp;
+      const gx0 = Math.floor(left / m), gy0 = Math.floor(-top / m);
+      const cols = Math.ceil(W / cs) + 2, rows = Math.ceil(H / cs) + 2;
+      const sk = cfg.scale / 1000;                                  // noise frequency per metre
+      const S = Math.max(1, Math.min(4, Math.round(m / L.res)));    // land-cover samples per cell edge
+      const n = cols * rows;
+      const g = { cols, rows, ox:(gx0*m - left) / view.mpp, oy:(-gy0*m - top) / -view.mpp,
+                  land:new Uint8Array(n), field:new Float32Array(n), dens:new Float32Array(n), tone:new Uint8Array(n), boost:new Float32Array(n) };
+      const counts = new Uint16Array(8);
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+        const k = j*cols + i, gx = gx0 + i, gy = gy0 + j;
+        const wx = (gx + 0.5) * m, wy = -(gy + 0.5) * m;
+        // majority land type within the cell (sea/outside only win if nothing else is there)
+        counts.fill(0); let out = 0;
+        for (let sy = 0; sy < S; sy++) for (let sx = 0; sx < S; sx++) {
+          const t = TYPE_OF[lcAt(gx*m + (sx + 0.5) * m / S, -(gy*m + (sy + 0.5) * m / S))];
+          if (t === T.OUT) out++; else counts[t]++;
+        }
+        let best = T.OUT, bc = 0;
+        for (let t = 0; t < 7; t++) { const c = counts[t] * (t === T.WATER ? 0.8 : 1); if (c > bc) { bc = c; best = t; } }
+        g.land[k] = out > S*S/2 ? T.OUT : best;
+        g.field[k] = nA(wx*sk + 10, wy*sk + 10, 3);
+        g.dens[k]  = nB(wx*sk*1.3 + 50, wy*sk*1.3 + 50, 2);
+        const bx = (Math.floor(gx / BG_BLOCK) + 0.5) * BG_BLOCK * m, by = -(Math.floor(gy / BG_BLOCK) + 0.5) * BG_BLOCK * m;
+        const t = nC(bx*sk*0.8 + 90, by*sk*0.8 + 90, 3);
+        g.tone[k] = t < 0.4 ? 0 : t > 0.6 ? 2 : 1;
+        g.boost[k] = boostAt(wx, wy);
+      }
+      grid = g;
+    }
+
+    function draw() {
+      const g = grid, { cols, rows, ox, oy } = g;
+      ctx.fillStyle = P.outside; ctx.fillRect(0, 0, W, H);
+      const at = (i, j) => [ox + i*cs, oy + j*cs];
+
+      // background: water, land, light land patches, native bush
+      const tones = [...P.bg, P.bushBg];
+      for (let t = 0; t < tones.length; t++) {
+        ctx.fillStyle = tones[t];
+        ctx.beginPath();
+        for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+          const k = j*cols + i, lt = g.land[k];
+          const tone = lt === T.BUSH ? 3 : lt === T.WATER ? 0 : g.tone[k] === 2 ? 2 : 1;
+          if (tone === t && lt !== T.OUT) { const [x, y] = at(i, j); ctx.rect(x, y, cs, cs); }
+        }
+        ctx.fill();
+      }
+
+      const wgt = cfg.weight * cs;
+      const densT = 1 - cfg.density;      // threshold for 4-ticks
+      const GAP = 1;                      // px between neighbouring crosses
+      const arm = (cs - GAP) / 2;
+      const tick = cs * 0.2, tickOff = cs * 0.2;
+      const shift = cfg.recovery - 0.5;
+
+      // bucket cells per colour so each colour is drawn as one path
+      const crosses = new Map(), ticks = new Map();
+      const push = (mp, c, x, y) => { let a = mp.get(c); if (!a) mp.set(c, a = []); a.push(x, y); };
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+        const k = j*cols + i, t = g.land[k];
+        if (t === T.OUT) continue;
+        const ty = TYPES[t];
+        const v = Math.min(0.999, Math.max(0, ty.base + (g.field[k] - 0.5) * cfg.texture + shift * ty.sens + g.boost[k]));
+        const ramp = P.ramps[t] || ty.ramp;
+        const c = ramp[Math.floor(v * ramp.length)];
+        const colour = P.c[c] || c;
+        const [x, y] = at(i, j);
+        push(crosses, colour, x + cs/2, y + cs/2);
+        if (g.dens[k] + ty.dense + (v - 0.5) * 0.4 > densT) push(ticks, colour, x + cs/2, y + cs/2);
+      }
+
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = wgt;
+      for (const [colour, p] of crosses) {
+        ctx.strokeStyle = colour;
+        ctx.beginPath();
+        for (let k = 0; k < p.length; k += 2) {
+          const cx = p[k], cy = p[k+1];
+          ctx.moveTo(cx - arm, cy); ctx.lineTo(cx + arm, cy);
+          ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy + arm);
+        }
+        ctx.stroke();
+      }
+      ctx.lineWidth = wgt * 0.9;
+      for (const [colour, p] of ticks) {
+        ctx.strokeStyle = colour;
+        ctx.beginPath();
+        for (let k = 0; k < p.length; k += 2) {
+          const cx = p[k], cy = p[k+1];
+          for (const [sx, sy] of [[-1,-1],[1,-1],[-1,1],[1,1]]) {
+            const ax = cx + sx*tickOff, ay = cy + sy*tickOff;
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(ax + sx*tick*0.7, ay + sy*tick*0.7);
+          }
+        }
+        ctx.stroke();
+      }
+    }
+
+    let raf = 0;
+    function schedule() {
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; sampleGrid(); draw(); });
+    }
+
+    // ---------- view ----------
+    const toWorld = (sx, sy) => [view.cx + (sx - W/2) * view.mpp, view.cy - (sy - H/2) * view.mpp];
+    // keep the whole view inside the land cover extent, so the edge of the data never shows
+    function clampView() {
+      view.mpp = Math.min(maxMpp, Math.max(MIN_MPP, view.mpp));
+      const hw = W/2 * view.mpp, hh = H/2 * view.mpp;
+      view.cx = Math.min(EXTENT.x1 - hw, Math.max(EXTENT.x0 + hw, view.cx));
+      view.cy = Math.min(EXTENT.y1 - hh, Math.max(EXTENT.y0 + hh, view.cy));
+      if (zoomIn) { zoomIn.disabled = view.mpp <= MIN_MPP * 1.001; zoomOut.disabled = view.mpp >= maxMpp * 0.999; }
+    }
+    function fitFrame() {
+      const f = FRAMES[cfg.frame];
+      view.cx = (f.x0 + f.x1) / 2; view.cy = (f.y0 + f.y1) / 2;
+      view.mpp = Math.max((f.x1 - f.x0) / W, (f.y1 - f.y0) / H);
+    }
+    // zoom about a screen point, keeping the world point under it fixed
+    function zoomAt(mpp, sx, sy) {
+      const [wx, wy] = toWorld(sx, sy);
+      view.mpp = Math.min(maxMpp, Math.max(MIN_MPP, mpp));
+      view.cx = wx - (sx - W/2) * view.mpp; view.cy = wy + (sy - H/2) * view.mpp;
+      clampView(); schedule();
+    }
+
+    function resize() {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = r.width; H = r.height;
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      maxMpp = Math.min((EXTENT.x1 - EXTENT.x0) / W, (EXTENT.y1 - EXTENT.y0) / H);
+      if (!touched) fitFrame();                     // refit until the visitor has moved the map
+      clampView(); sampleGrid(); draw();
+    }
+
+    // ---------- brush ----------
+    function paint(dir) {
+      const [wx, wy] = toWorld(mouse.x, mouse.y);
+      const R = cfg.brush * cs * view.mpp;          // brush radius in metres
+      const c0 = Math.floor((wx - R - EXTENT.x0) / BOOST_RES), c1 = Math.ceil((wx + R - EXTENT.x0) / BOOST_RES);
+      const r0 = Math.floor((EXTENT.y1 - wy - R) / BOOST_RES), r1 = Math.ceil((EXTENT.y1 - wy + R) / BOOST_RES);
+      for (let r = Math.max(0, r0); r <= Math.min(BH-1, r1); r++)
+        for (let c = Math.max(0, c0); c <= Math.min(BW-1, c1); c++) {
+          const dd = Math.hypot(EXTENT.x0 + (c + .5) * BOOST_RES - wx, EXTENT.y1 - (r + .5) * BOOST_RES - wy);
+          if (dd < R) boost[r*BW + c] = Math.max(-0.6, Math.min(0.6, boost[r*BW + c] + dir * 0.03 * (1 - dd / R)));
+        }
+    }
+
+    // ---------- pointer: hover paints, one pointer pans, two pointers pinch-zoom ----------
+    const pts = new Map();
+    let drag = null, pinch = null;
+    const local = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    function startGesture() {
+      const p = [...pts.values()];
+      drag = pinch = null;
+      if (p.length === 1) {
+        drag = { x:p[0][0], y:p[0][1], cx:view.cx, cy:view.cy };
+        cv.classList.add('ngm-panning');
+      } else if (p.length >= 2) {
+        const [a, b] = p, mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+        pinch = { d:Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, mpp:view.mpp, w:toWorld(mx, my) };
+      } else cv.classList.remove('ngm-panning');
+    }
+    cv.addEventListener('pointerdown', e => {
+      cv.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, local(e));
+      touched = true;
+      startGesture();
+      if (e.pointerType === 'touch') { [mouse.x, mouse.y] = local(e); paint(1); schedule(); }
+    });
+    const end = e => { if (pts.delete(e.pointerId)) startGesture(); };
+    cv.addEventListener('pointerup', end);
+    cv.addEventListener('pointercancel', end);
+    cv.addEventListener('pointermove', e => {
+      const p = local(e);
+      [mouse.x, mouse.y] = p;
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, p);
+      if (pinch) {
+        const [a, b] = [...pts.values()];
+        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+        view.mpp = Math.min(maxMpp, Math.max(MIN_MPP, pinch.mpp * pinch.d / (Math.hypot(a[0] - b[0], a[1] - b[1]) || 1)));
+        view.cx = pinch.w[0] - (mx - W/2) * view.mpp; view.cy = pinch.w[1] + (my - H/2) * view.mpp;
+        clampView();
+      } else if (drag) {
+        view.cx = drag.cx - (p[0] - drag.x) * view.mpp;
+        view.cy = drag.cy + (p[1] - drag.y) * view.mpp;
+        clampView();
+        if (e.pointerType === 'touch') paint(1);    // touch has no hover, so the finger restores as it goes
+      } else paint(e.shiftKey ? -1 : 1);
+      schedule();
+    });
+
+    // ---------- zoom buttons ----------
+    let zoomIn = null, zoomOut = null;
+    if (d.zoomButtons !== 'off') {
+      const box = Object.assign(document.createElement('div'), { className:'ngm-zoom' });
+      const btn = (label, text, f) => {
+        const b = Object.assign(document.createElement('button'), { type:'button', textContent:text });
+        b.setAttribute('aria-label', label);
+        b.addEventListener('click', () => { touched = true; animateZoom(view.mpp * f); });
+        box.appendChild(b); return b;
+      };
+      zoomIn = btn('Zoom in', '+', 1 / 1.6);
+      zoomOut = btn('Zoom out', '−', 1.6);
+      el.appendChild(box);
+    }
+    let anim = 0;
+    function animateZoom(target) {
+      cancelAnimationFrame(anim);
+      target = Math.min(maxMpp, Math.max(MIN_MPP, target));
+      const from = view.mpp, t0 = performance.now(), dur = 220;
+      const step = now => {
+        const t = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - t, 3);
+        zoomAt(from * Math.pow(target / from, e), W / 2, H / 2);
+        if (t < 1) anim = requestAnimationFrame(step);
+      };
+      anim = requestAnimationFrame(step);
+    }
+
+    new ResizeObserver(resize).observe(el);
+    resize();
+
+    const api = {
+      setRecovery(v) { cfg.recovery = Math.min(1, Math.max(0, +v)); schedule(); },
+      clearBrush() { boost.fill(0); schedule(); },
+      resetView() { touched = false; fitFrame(); clampView(); schedule(); },
+    };
+    el.__natureMap = api;
+    return api;
+  }
+
+  function init() {
+    document.querySelectorAll('.nature-map, [data-nature-map]').forEach(mount);
+  }
+  window.NatureMap = { mount, init };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
