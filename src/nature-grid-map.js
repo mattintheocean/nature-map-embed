@@ -6,7 +6,7 @@
  * Needs window.LCDB (the land cover grid), which the build puts at the top of nature-grid-embed.js.
  *
  * Options, as data attributes on the element:
- *   data-frame="city|region"   starting view (default city)
+ *   data-frame="city|region|markers"   starting view (default city); markers fits all the markers in view
  *   data-zoom="1"              starting zoom relative to the frame: 1 fits it, 2 is twice as close, 0.5 further out
  *   data-recovery="0.5"        nature return level, 0 to 1
  *   data-cell="22"             cell size in px
@@ -187,7 +187,7 @@
     const d = el.dataset;
     const num = (v, def) => (v === undefined || v === '' || isNaN(+v)) ? def : +v;
     const cfg = {
-      frame: FRAMES[d.frame] ? d.frame : 'city',
+      frame: FRAMES[d.frame] || d.frame === 'markers' ? d.frame : 'city',
       zoom: Math.max(0.1, num(d.zoom, 1)),
       recovery: num(d.recovery, 0.5), cs: num(d.cell, 22), density: num(d.density, 0.5), weight: num(d.weight, 0.14),
       texture: num(d.texture, 0.35), scale: num(d.scale, 0.35), brush: num(d.brush, 5),
@@ -442,7 +442,16 @@
       if (zoomIn) { zoomIn.disabled = view.mpp <= MIN_MPP * 1.001; zoomOut.disabled = view.mpp >= maxMpp * 0.999; }
     }
     function fitFrame() {
-      const f = FRAMES[cfg.frame];
+      if (cfg.frame === 'markers' && markers.length) {
+        // fit every marker, leaving room around the edges and for the tags, which sit to the right
+        const xs = markers.map(m => m.w[0]), ys = markers.map(m => m.w[1]);
+        const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+        const PAD = 48, TAG = 110;
+        view.mpp = Math.max((x1 - x0) / Math.max(1, W - 2*PAD - TAG), (y1 - y0) / Math.max(1, H - 2*PAD), MIN_MPP) / cfg.zoom;
+        view.cx = (x0 + x1) / 2 + TAG/2 * view.mpp; view.cy = (y0 + y1) / 2;
+        return;
+      }
+      const f = FRAMES[cfg.frame] || FRAMES.city;
       view.cx = (f.x0 + f.x1) / 2; view.cy = (f.y0 + f.y1) / 2;
       view.mpp = Math.max((f.x1 - f.x0) / W, (f.y1 - f.y0) / H) / cfg.zoom;   // zoom 1 fits the frame, 2 is twice as close
     }
