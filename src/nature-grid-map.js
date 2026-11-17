@@ -14,6 +14,7 @@
  *   data-seed="12345"          fixed pattern (default random on each load)
  *   data-credit="off"          hide the data credit (only if it is credited elsewhere on the page)
  *   data-zoom-buttons="off"    hide the + / − buttons
+ *   data-hint="…"              text of the hint beside the zoom buttons (default "Drag to move the map"); "off" hides it
  *
  * Markers: put elements with a data-marker attribute inside the map element. Each one becomes a marker at
  * data-lat / data-lng (or NZTM data-x / data-y), and its contents show in a card when the marker is clicked:
@@ -128,7 +129,12 @@
 .ngm { position:relative; overflow:hidden; min-height:320px; background:${P.bg[1]}; }
 .ngm canvas { position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
 .ngm canvas.ngm-panning { cursor:grabbing; }
-.ngm-zoom { position:absolute; right:12px; bottom:12px; display:flex; flex-direction:column; gap:6px; }
+.ngm-zoom { position:absolute; left:12px; top:12px; display:flex; flex-direction:column; gap:6px; }
+.ngm-hint { position:absolute; left:12px; top:12px; height:36px; padding:0 12px; border-radius:6px; pointer-events:none;
+  background:rgba(255,255,255,.8); color:#1d6b4a; font:500 13px/36px system-ui, sans-serif; white-space:nowrap;
+  box-shadow:0 1px 3px rgba(20,90,60,.15); transition:opacity .4s, transform .4s; }
+.ngm-zoom + .ngm-hint { left:56px; }
+.ngm-hint.ngm-gone { opacity:0; transform:translateX(-6px); }
 .ngm-zoom button { width:36px; height:36px; padding:0; margin:0; border:0; border-radius:6px; cursor:pointer;
   background:rgba(255,255,255,.8); color:#1d6b4a; font:500 22px/36px system-ui, sans-serif; text-align:center;
   box-shadow:0 1px 3px rgba(20,90,60,.15); transition:background .15s, opacity .15s; }
@@ -531,11 +537,12 @@
         const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
         view.mpp = Math.min(maxMpp, Math.max(MIN_MPP, pinch.mpp * pinch.d / (Math.hypot(a[0] - b[0], a[1] - b[1]) || 1)));
         view.cx = pinch.w[0] - (mx - W/2) * view.mpp; view.cy = pinch.w[1] + (my - H/2) * view.mpp;
-        clampView(); schedule();
+        clampView(); schedule(); hideHint();
       } else if (drag) {
         view.cx = drag.cx - (p[0] - drag.x) * view.mpp;
         view.cy = drag.cy + (p[1] - drag.y) * view.mpp;
         clampView(); schedule();
+        if (Math.hypot(p[0] - drag.x, p[1] - drag.y) > 5) hideHint();
       }
     });
 
@@ -553,6 +560,10 @@
       zoomOut = btn('Zoom out', '−', 1.6);
       el.appendChild(box);
     }
+    // hint beside the zoom buttons; it fades once the visitor has panned or pinched the map
+    const hint = d.hint === 'off' ? null
+      : el.appendChild(Object.assign(document.createElement('div'), { className:'ngm-hint', textContent:d.hint || 'Drag to move the map' }));
+    const hideHint = () => { if (hint) hint.classList.add('ngm-gone'); };
     let anim = 0;
     function animateZoom(target) {
       cancelAnimationFrame(anim);

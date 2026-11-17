@@ -16,14 +16,14 @@ The map without the control panel, for a Webflow section.
 
 ```html
 <div class="nature-map" data-zoom="1" style="width:100%;height:100%;min-height:480px"></div>
-<script src="https://cdn.jsdelivr.net/gh/mattintheocean/nature-map-embed@v1.6.0/nature-grid-embed.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/mattintheocean/nature-map-embed@v1.7.0/nature-grid-embed.js" defer></script>
 ```
 
 If more than one page uses the map, the `<script>` line can go in the site's footer code instead. The map only draws on the published site or in Preview, not in the Designer canvas.
 
 ## Interaction
 
-- Mouse: nature returns in a circle around the pointer as it moves across the map, and each spot fades back to normal shortly after the pointer moves on. Dragging pans, and the + and − buttons zoom.
+- Mouse: nature returns in a circle around the pointer as it moves across the map, and each spot fades back to normal shortly after the pointer moves on. Dragging pans, and the + and − buttons in the top left zoom.
 - Touch: nature returns around the finger while it's on the map and fades when it lifts. One finger pans, and two fingers pinch to zoom.
 - The scroll wheel is left to the page, so scrolling past the map works as usual. On touch screens a swipe that starts on the map pans the map instead of the page.
 
@@ -69,6 +69,7 @@ Set these as attributes on the `div`, for example `data-recovery="0.3"`:
 | `data-scale` | `0.35` | Noise scale |
 | `data-brush` | `5` | Radius of the effect around the pointer, in cells |
 | `data-seed` | random | A fixed number gives the same pattern on every load |
+| `data-hint` | `Drag to move the map` | Hint beside the zoom buttons, which fades once the map is dragged. Set your own text, or `off` to hide it |
 | `data-zoom-buttons` | on | Set to `off` to hide + and − |
 | `data-credit` | on | Set to `off` only if the data is credited elsewhere on the page |
 
@@ -79,5 +80,5 @@ From page code, `document.querySelector('.nature-map').__natureMap` exposes `set
 ## Releasing a change
 
 1. Edit `src/nature-grid-map.js`, run `./build.sh`, and check `test.html`.
-2. Commit, then tag a new version and push it: `git tag v1.6.1 && git push origin main v1.6.1`.
-3. Change the version (for example `@v1.6.0`) to the new tag in the Webflow embed and republish.
+2. Commit, then tag a new version and push it: `git tag v1.7.1 && git push origin main v1.7.1`.
+3. Change the version (for example `@v1.7.0`) to the new tag in the Webflow embed and republish.
