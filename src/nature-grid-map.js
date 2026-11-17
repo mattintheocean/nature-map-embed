@@ -29,8 +29,9 @@
 
   // ---------- palette (mint) ----------
   const P = {
-    bg:['#54f8b8', '#5cfb92', '#78fb9e'],      // water, land, light land patches
+    bg:['#a5ffbd', '#5cfb92', '#78fb9e'],      // water, land, light land patches
     outside:'#5cfb92',                         // neighbouring regions blend into the mint background
+    outsideCross:'#74fba4',                    // with a faint cross so they aren't flat colour
     bushBg:'#50f28c',                          // native bush sits on a slightly deeper green
     c:{ black:'#5af694', orange:'#c8fa96', brown:'#a6f89e', dkgreen:'#4cf8a4', ltgreen:'#a4fcae',
         yellow:'#e8fb96', ltblue:'#c6fcee', blue:'#6cf8d8', deepblue:'#52f4de' },
@@ -305,9 +306,10 @@
       const push = (mp, c, x, y) => { let a = mp.get(c); if (!a) mp.set(c, a = []); a.push(x, y); };
       for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
         const k = j*cols + i, t = g.land[k];
-        if (t === T.OUT) continue;
-        const ty = TYPES[t];
         const [x, y] = at(i, j);
+        // neighbouring regions: a faint plain cross, untouched by the lens
+        if (t === T.OUT) { push(crosses, P.outsideCross, x + cs/2, y + cs/2); continue; }
+        const ty = TYPES[t];
         const lb = spots.length ? lensAt(x + cs/2, y + cs/2) : 0;
         const v = Math.min(0.999, Math.max(0, ty.base + (g.field[k] - 0.5) * cfg.texture + shift * ty.sens + lb));
         const ramp = P.ramps[t] || ty.ramp;
