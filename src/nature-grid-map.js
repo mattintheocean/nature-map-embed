@@ -1,7 +1,8 @@
 /*
  * Nature Return Grid, embed version.
  * Mounts the interactive Auckland map into every element with class "nature-map" (or a data-nature-map attribute).
- * Hover (or touch) restores nature, drag pans, pinch or the + / − buttons zoom. Page scrolling is left alone.
+ * Nature returns around the pointer (or finger) and fades back once it moves on; drag pans, pinch or the + / − buttons zoom.
+ * Page scrolling is left alone.
  * Needs window.LCDB (the land cover grid), which the build puts at the top of nature-grid-embed.js.
  *
  * Options, as data attributes on the element:
@@ -217,16 +218,11 @@
     const view = { cx:0, cy:0, mpp:100 };           // world centre (NZTM) and metres per screen px
     const MIN_MPP = 5;
     let maxMpp = 400;
-    const mouse = { x:-1, y:-1 };
-
-    // brush strokes live in world space so they stay put when panning and zooming
-    const BOOST_RES = 200;
-    const BW = Math.ceil((EXTENT.x1 - EXTENT.x0) / BOOST_RES), BH = Math.ceil((EXTENT.y1 - EXTENT.y0) / BOOST_RES);
-    const boost = new Float32Array(BW * BH);
-    function boostAt(wx, wy) {
-      const c = Math.floor((wx - EXTENT.x0) / BOOST_RES), r = Math.floor((EXTENT.y1 - wy) / BOOST_RES);
-      return (c < 0 || r < 0 || c >= BW || r >= BH) ? 0 : boost[r * BW + c];
-    }
+    // the lens: nature returns around the pointer, and spots it has passed fade back to normal
+    const LENS_FADE = 700;                          // ms for a passed-over spot to return
+    const LENS_STRENGTH = 0.6;
+    const trail = [];                               // recent pointer positions in world space
+    let lens = [0, 0], lensOn = false;
 
     // per-frame cell sample: the visible grid is aligned to world cells of size m metres
     function sampleGrid() {
@@ -238,7 +234,7 @@
       const S = Math.max(1, Math.min(4, Math.round(m / L.res)));    // land-cover samples per cell edge
       const n = cols * rows;
       const g = { cols, rows, ox:(gx0*m - left) / view.mpp, oy:(-gy0*m - top) / -view.mpp,
-                  land:new Uint8Array(n), field:new Float32Array(n), dens:new Float32Array(n), tone:new Uint8Array(n), boost:new Float32Array(n) };
+                  land:new Uint8Array(n), field:new Float32Array(n), dens:new Float32Array(n), tone:new Uint8Array(n) };
       const counts = new Uint16Array(8);
       for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
         const k = j*cols + i, gx = gx0 + i, gy = gy0 + j;
@@ -257,7 +253,6 @@
         const bx = (Math.floor(gx / BG_BLOCK) + 0.5) * BG_BLOCK * m, by = -(Math.floor(gy / BG_BLOCK) + 0.5) * BG_BLOCK * m;
         const t = nC(bx*sk*0.8 + 90, by*sk*0.8 + 90, 3);
         g.tone[k] = t < 0.4 ? 0 : t > 0.6 ? 2 : 1;
-        g.boost[k] = boostAt(wx, wy);
       }
       grid = g;
     }
@@ -287,6 +282,24 @@
       const tick = cs * 0.2, tickOff = cs * 0.2;
       const shift = cfg.recovery - 0.5;
 
+      // lens spots in screen px: the pointer at full strength, its trail fading out
+      const now = performance.now();
+      while (trail.length && now - trail[0].t > LENS_FADE) trail.shift();
+      const toScreen = (wx, wy) => [(wx - view.cx) / view.mpp + W/2, (view.cy - wy) / view.mpp + H/2];
+      const spots = trail.map(p => [...toScreen(p.wx, p.wy), 1 - (now - p.t) / LENS_FADE]);
+      if (lensOn) spots.push([...toScreen(lens[0], lens[1]), 1]);
+      const R = cfg.brush * cs, R2 = R * R;
+      const lensAt = (px, py) => {
+        let best = 0;
+        for (const [sx, sy, f] of spots) {
+          const d2 = (px - sx) ** 2 + (py - sy) ** 2;
+          if (d2 >= R2) continue;
+          const s = 1 - Math.sqrt(d2) / R, e = s * s * (3 - 2 * s) * f;   // smooth falloff to the edge
+          if (e > best) best = e;
+        }
+        return best * LENS_STRENGTH;
+      };
+
       // bucket cells per colour so each colour is drawn as one path
       const crosses = new Map(), ticks = new Map();
       const push = (mp, c, x, y) => { let a = mp.get(c); if (!a) mp.set(c, a = []); a.push(x, y); };
@@ -295,7 +308,8 @@
         if (t === T.OUT) continue;
         const ty = TYPES[t];
         const [x, y] = at(i, j);
-        const v = Math.min(0.999, Math.max(0, ty.base + (g.field[k] - 0.5) * cfg.texture + shift * ty.sens + g.boost[k]));
+        const lb = spots.length ? lensAt(x + cs/2, y + cs/2) : 0;
+        const v = Math.min(0.999, Math.max(0, ty.base + (g.field[k] - 0.5) * cfg.texture + shift * ty.sens + lb));
         const ramp = P.ramps[t] || ty.ramp;
         const c = ramp[Math.floor(v * ramp.length)];
         const colour = P.c[c] || c;
@@ -330,6 +344,7 @@
         ctx.stroke();
       }
       placeMarkers();
+      if (trail.length) schedule(false);            // keep redrawing until the trail has faded
     }
 
     // ---------- markers and info card ----------
@@ -406,9 +421,11 @@
       card.style.top = Math.max(8, top) + 'px';
     }
 
-    let raf = 0;
-    function schedule() {
-      if (!raf) raf = requestAnimationFrame(() => { raf = 0; sampleGrid(); draw(); });
+    // full: the view moved, so the grid needs resampling; otherwise only the colours change
+    let raf = 0, resample = false;
+    function schedule(full = true) {
+      if (full) resample = true;
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (resample) sampleGrid(); resample = false; draw(); });
     }
 
     // ---------- view ----------
@@ -446,23 +463,26 @@
       clampView(); sampleGrid(); draw();
     }
 
-    // ---------- brush ----------
-    function paint(dir) {
-      const [wx, wy] = toWorld(mouse.x, mouse.y);
-      const R = cfg.brush * cs * view.mpp;          // brush radius in metres
-      const c0 = Math.floor((wx - R - EXTENT.x0) / BOOST_RES), c1 = Math.ceil((wx + R - EXTENT.x0) / BOOST_RES);
-      const r0 = Math.floor((EXTENT.y1 - wy - R) / BOOST_RES), r1 = Math.ceil((EXTENT.y1 - wy + R) / BOOST_RES);
-      for (let r = Math.max(0, r0); r <= Math.min(BH-1, r1); r++)
-        for (let c = Math.max(0, c0); c <= Math.min(BW-1, c1); c++) {
-          const dd = Math.hypot(EXTENT.x0 + (c + .5) * BOOST_RES - wx, EXTENT.y1 - (r + .5) * BOOST_RES - wy);
-          if (dd < R) boost[r*BW + c] = Math.max(-0.6, Math.min(0.6, boost[r*BW + c] + dir * 0.03 * (1 - dd / R)));
-        }
-    }
-
-    // ---------- pointer: hover paints, one pointer pans, two pointers pinch-zoom ----------
+    // ---------- pointer: the lens follows the pointer, one pointer pans, two pointers pinch-zoom ----------
     const pts = new Map();
     let drag = null, pinch = null;
     const local = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    function moveLens(e) {
+      lens = toWorld(...local(e)); lensOn = true;
+      trail.push({ wx:lens[0], wy:lens[1], t:performance.now() });
+      if (trail.length > 80) trail.shift();
+      schedule(false);
+    }
+    function leaveLens() {
+      if (!lensOn) return;
+      lensOn = false;
+      trail.push({ wx:lens[0], wy:lens[1], t:performance.now() });   // the last spot fades out too
+      schedule(false);
+    }
+    // listened for on the whole map, so the lens keeps going over markers and the card;
+    // touch has no hover, so a finger moves the lens only while it is down
+    el.addEventListener('pointermove', e => { if (e.pointerType !== 'touch' || pts.has(e.pointerId)) moveLens(e); });
+    el.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') leaveLens(); });
     function startGesture() {
       const p = [...pts.values()];
       drag = pinch = null;
@@ -479,7 +499,7 @@
       pts.set(e.pointerId, local(e));
       touched = true;
       startGesture();
-      if (e.pointerType === 'touch') { [mouse.x, mouse.y] = local(e); paint(1); schedule(); }
+      if (e.pointerType === 'touch') moveLens(e);
     });
     const end = e => {
       if (!pts.has(e.pointerId)) return;
@@ -487,26 +507,24 @@
       const [x, y] = local(e);
       if (drag && pts.size === 1 && Math.hypot(x - drag.x, y - drag.y) < 5) closeCard();
       pts.delete(e.pointerId); startGesture();
+      if (e.pointerType === 'touch' && !pts.size) leaveLens();
     };
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);
     cv.addEventListener('pointermove', e => {
       const p = local(e);
-      [mouse.x, mouse.y] = p;
       if (pts.has(e.pointerId)) pts.set(e.pointerId, p);
       if (pinch) {
         const [a, b] = [...pts.values()];
         const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
         view.mpp = Math.min(maxMpp, Math.max(MIN_MPP, pinch.mpp * pinch.d / (Math.hypot(a[0] - b[0], a[1] - b[1]) || 1)));
         view.cx = pinch.w[0] - (mx - W/2) * view.mpp; view.cy = pinch.w[1] + (my - H/2) * view.mpp;
-        clampView();
+        clampView(); schedule();
       } else if (drag) {
         view.cx = drag.cx - (p[0] - drag.x) * view.mpp;
         view.cy = drag.cy + (p[1] - drag.y) * view.mpp;
-        clampView();
-        if (e.pointerType === 'touch') paint(1);    // touch has no hover, so the finger restores as it goes
-      } else paint(e.shiftKey ? -1 : 1);
-      schedule();
+        clampView(); schedule();
+      }
     });
 
     // ---------- zoom buttons ----------
@@ -541,7 +559,6 @@
 
     const api = {
       setRecovery(v) { cfg.recovery = Math.min(1, Math.max(0, +v)); schedule(); },
-      clearBrush() { boost.fill(0); schedule(); },
       resetView() { touched = false; fitFrame(); clampView(); schedule(); },
       openMarker(i) { if (markers[i]) openCard(i); },
       closeMarker() { closeCard(); },
