@@ -16,7 +16,7 @@ The map without the control panel, for a Webflow section.
 
 ```html
 <div class="nature-map" data-zoom="1" style="width:100%;height:100%;min-height:480px"></div>
-<script src="https://cdn.jsdelivr.net/gh/mattintheocean/nature-map-embed@v1.2.0/nature-grid-embed.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/mattintheocean/nature-map-embed@v1.3.0/nature-grid-embed.js" defer></script>
 ```
 
 If more than one page uses the map, the `<script>` line can go in the site's footer code instead. The map only draws on the published site or in Preview, not in the Designer canvas.
@@ -48,6 +48,8 @@ Put one element with a `data-marker` attribute inside the map `div` for each mar
 - `nature-map-number` and `nature-map-label` give the big figure and the uppercase caption. Other HTML, such as a paragraph or a link, also works inside the card.
 - The card uses the page's font, so it picks up the Webflow site's typography.
 - Keep `hidden` on each marker element so its text doesn't flash on the page before the map loads.
+- Each marker is a dark grid cell with a tag showing its number. On hover the tag expands to show the caption.
+- Long captions are cut off in the tag. `data-tag-label="Community groups"` gives the tag a shorter caption, and `data-tag="…"` overrides the number. The card still shows the full content.
 - `data-title` on a marker sets its screen-reader label, which otherwise comes from its text.
 - Clicking the map, the × or pressing Esc closes the card. Only one card is open at a time.
 
@@ -77,5 +79,5 @@ From page code, `document.querySelector('.nature-map').__natureMap` exposes `set
 ## Releasing a change
 
 1. Edit `src/nature-grid-map.js`, run `./build.sh`, and check `test.html`.
-2. Commit, then tag a new version and push it: `git tag v1.2.1 && git push origin main v1.2.1`.
-3. Change the version (for example `@v1.2.0`) to the new tag in the Webflow embed and republish.
+2. Commit, then tag a new version and push it: `git tag v1.3.1 && git push origin main v1.3.1`.
+3. Change the version (for example `@v1.3.0`) to the new tag in the Webflow embed and republish.

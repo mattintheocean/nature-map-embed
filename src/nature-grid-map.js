@@ -135,18 +135,30 @@
 .ngm-credit { position:absolute; left:10px; bottom:8px; max-width:calc(100% - 80px); pointer-events:none;
   font:10px/1.3 system-ui, sans-serif; color:rgba(20,90,60,.6); }
 .ngm-markers { position:absolute; inset:0; pointer-events:none; }
-.ngm-marker { position:absolute; left:0; top:0; margin:0; padding:0; border:0; border-radius:2px; cursor:pointer; pointer-events:auto;
-  background:#fbf8f1; box-shadow:0 1px 4px rgba(20,90,60,.3); transition:transform .15s, background .15s; }
-.ngm-marker::before, .ngm-marker::after { content:''; position:absolute; left:50%; top:50%; width:56%; height:2px;
-  background:#0f3b2a; transform:translate(-50%,-50%); transition:background .15s; }
-.ngm-marker::after { transform:translate(-50%,-50%) rotate(90deg); }
-.ngm-marker:hover { transform:scale(1.15); }
-.ngm-marker:focus-visible { outline:2px solid #0f3b2a; outline-offset:2px; }
-.ngm-marker.ngm-active { background:#0f3b2a; }
-.ngm-marker.ngm-active::before, .ngm-marker.ngm-active::after { background:#fbf8f1; }
-.ngm-pulse { position:absolute; inset:-2px; border:2px solid #fbf8f1; border-radius:3px; pointer-events:none;
+.ngm-marker { position:absolute; left:0; top:0; margin:0; padding:0; border:0; background:none; cursor:pointer; pointer-events:auto;
+  font:inherit; color:inherit; -webkit-tap-highlight-color:transparent; }
+.ngm-marker:hover, .ngm-marker:focus-visible { z-index:2; outline:none; }
+.ngm-marker:focus-visible .ngm-cell { outline:2px solid #0f3b2a; outline-offset:3px; }
+/* the visible cell sits centred in a larger tap area: the reverse of the pattern, a dark cell with a pale cross */
+.ngm-cell { position:absolute; left:50%; top:50%; width:var(--s); height:var(--s); margin:calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+  border-radius:2px; background:#0f3b2a; box-shadow:0 1px 6px rgba(15,59,42,.35); transition:transform .15s, background .15s; }
+.ngm-cell::before, .ngm-cell::after { content:''; position:absolute; left:50%; top:50%; width:var(--arm); height:var(--w);
+  background:#fbf8f1; transform:translate(-50%,-50%); transition:background .15s; }
+.ngm-cell::after { transform:translate(-50%,-50%) rotate(90deg); }
+.ngm-marker:hover .ngm-cell { transform:scale(1.15); }
+.ngm-active .ngm-cell { background:#fbf8f1; }
+.ngm-active .ngm-cell::before, .ngm-active .ngm-cell::after { background:#0f3b2a; }
+.ngm-pulse { position:absolute; inset:-2px; border:2px solid #0f3b2a; border-radius:3px; pointer-events:none;
   animation:ngm-pulse 2.4s ease-out infinite; }
 .ngm-active .ngm-pulse { display:none; }
+.ngm-tag { position:absolute; top:50%; left:calc(50% + var(--s) / 2 + 6px); transform:translateY(-50%); display:flex; align-items:center;
+  padding:5px 8px; border-radius:2px; background:#0f3b2a; color:#fbf8f1; white-space:nowrap; font-size:14px; line-height:1;
+  font-weight:800; letter-spacing:-.01em; box-shadow:0 1px 6px rgba(15,59,42,.25); transition:opacity .15s; }
+.ngm-flip .ngm-tag { left:auto; right:calc(50% + var(--s) / 2 + 6px); }
+.ngm-tag-label { display:inline-block; max-width:0; overflow:hidden; text-overflow:ellipsis; opacity:0; font-size:11px; font-weight:700;
+  text-transform:uppercase; letter-spacing:.02em; transition:max-width .3s ease, opacity .2s, margin .3s; }
+.ngm-marker:hover .ngm-tag-label, .ngm-marker:focus-visible .ngm-tag-label { max-width:240px; opacity:1; margin-left:8px; }
+.ngm-active .ngm-tag { opacity:0; }
 @keyframes ngm-pulse { 0% { transform:scale(1); opacity:.9; } 70%, 100% { transform:scale(2); opacity:0; } }
 @media (prefers-reduced-motion: reduce) { .ngm-pulse { animation:none; opacity:0; } }
 .ngm-card { position:absolute; left:0; top:0; box-sizing:border-box; width:min(280px, calc(100% - 16px)); padding:36px 28px 32px;
@@ -185,7 +197,9 @@
       m.remove();
       const md = m.dataset;
       const w = md.lat !== undefined && md.lng !== undefined ? toNZTM(+md.lat, +md.lng) : [+md.x, +md.y];
-      return { w, html:m.innerHTML, label:(md.title || m.textContent).replace(/\s+/g, ' ').trim() };
+      const text = sel => { const t = m.querySelector(sel); return t ? t.textContent.replace(/\s+/g, ' ').trim() : ''; };
+      return { w, html:m.innerHTML, label:(md.title || m.textContent).replace(/\s+/g, ' ').trim(),
+               tag:md.tag || text('.nature-map-number'), tagLabel:md.tagLabel || text('.nature-map-label') };
     }).filter(m => isFinite(m.w[0]) && isFinite(m.w[1]));
 
     el.classList.add('ngm');
@@ -280,11 +294,11 @@
         const k = j*cols + i, t = g.land[k];
         if (t === T.OUT) continue;
         const ty = TYPES[t];
+        const [x, y] = at(i, j);
         const v = Math.min(0.999, Math.max(0, ty.base + (g.field[k] - 0.5) * cfg.texture + shift * ty.sens + g.boost[k]));
         const ramp = P.ramps[t] || ty.ramp;
         const c = ramp[Math.floor(v * ramp.length)];
         const colour = P.c[c] || c;
-        const [x, y] = at(i, j);
         push(crosses, colour, x + cs/2, y + cs/2);
         if (g.dens[k] + ty.dense + (v - 0.5) * 0.4 > densT) push(ticks, colour, x + cs/2, y + cs/2);
       }
@@ -328,9 +342,15 @@
     card.append(closeBtn, cardBody);
     let openIdx = -1;
     const markers = markerSrc.map((m, i) => {
+      // a grid cell, plus a tag with the number that expands to show the label on hover
       const b = Object.assign(document.createElement('button'), { type:'button', className:'ngm-marker' });
       b.setAttribute('aria-label', m.label);
-      b.appendChild(Object.assign(document.createElement('span'), { className:'ngm-pulse' }));
+      const cell = b.appendChild(Object.assign(document.createElement('span'), { className:'ngm-cell' }));
+      cell.appendChild(Object.assign(document.createElement('span'), { className:'ngm-pulse' }));
+      if (m.tag) {
+        const tag = b.appendChild(Object.assign(document.createElement('span'), { className:'ngm-tag', textContent:m.tag }));
+        if (m.tagLabel) tag.appendChild(Object.assign(document.createElement('span'), { className:'ngm-tag-label', textContent:m.tagLabel }));
+      }
       b.addEventListener('click', () => openIdx === i ? closeCard() : openCard(i));
       layer.appendChild(b);
       return { ...m, b, sx:0, sy:0, on:false };
@@ -361,15 +381,19 @@
     // markers sit on the grid cell that holds their point, one cell in size
     function placeMarkers() {
       if (!markers.length) return;
-      const m = cs * view.mpp, size = Math.max(14, cs - 2);
+      const m = cs * view.mpp, size = Math.max(14, cs - 2), hit = Math.max(44, size + 12);
       for (const mk of markers) {
         const cx = (Math.floor(mk.w[0] / m) + 0.5) * m, cy = (Math.floor(mk.w[1] / m) + 0.5) * m;
         mk.sx = (cx - view.cx) / view.mpp + W/2; mk.sy = (view.cy - cy) / view.mpp + H/2;
         mk.on = mk.sx > -cs && mk.sy > -cs && mk.sx < W + cs && mk.sy < H + cs;
         const s = mk.b.style;
-        s.width = s.height = size + 'px';
-        s.left = (mk.sx - size/2) + 'px'; s.top = (mk.sy - size/2) + 'px';
+        s.width = s.height = hit + 'px';
+        s.left = (mk.sx - hit/2) + 'px'; s.top = (mk.sy - hit/2) + 'px';
+        s.setProperty('--s', size + 'px');
+        s.setProperty('--arm', Math.round(size * 0.62) + 'px');
+        s.setProperty('--w', Math.max(2, Math.round(cfg.weight * cs)) + 'px');
         s.display = mk.on ? '' : 'none';
+        mk.b.classList.toggle('ngm-flip', mk.sx > W - 200);   // tag on the left near the right edge
       }
       if (openIdx < 0) return;
       const mk = markers[openIdx];
