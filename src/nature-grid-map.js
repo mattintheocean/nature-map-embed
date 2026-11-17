@@ -6,6 +6,7 @@
  *
  * Options, as data attributes on the element:
  *   data-frame="city|region"   starting view (default city)
+ *   data-zoom="1"              starting zoom relative to the frame: 1 fits it, 2 is twice as close, 0.5 further out
  *   data-recovery="0.5"        nature return level, 0 to 1
  *   data-cell="22"             cell size in px
  *   data-density="0.5"  data-weight="0.14"  data-texture="0.35"  data-scale="0.35"  data-brush="5"
@@ -129,6 +130,7 @@
     const num = (v, def) => (v === undefined || v === '' || isNaN(+v)) ? def : +v;
     const cfg = {
       frame: FRAMES[d.frame] ? d.frame : 'city',
+      zoom: Math.max(0.1, num(d.zoom, 1)),
       recovery: num(d.recovery, 0.5), cs: num(d.cell, 22), density: num(d.density, 0.5), weight: num(d.weight, 0.14),
       texture: num(d.texture, 0.35), scale: num(d.scale, 0.35), brush: num(d.brush, 5),
       seed: num(d.seed, Math.floor(Math.random() * 1e9)),
@@ -282,7 +284,7 @@
     function fitFrame() {
       const f = FRAMES[cfg.frame];
       view.cx = (f.x0 + f.x1) / 2; view.cy = (f.y0 + f.y1) / 2;
-      view.mpp = Math.max((f.x1 - f.x0) / W, (f.y1 - f.y0) / H);
+      view.mpp = Math.max((f.x1 - f.x0) / W, (f.y1 - f.y0) / H) / cfg.zoom;   // zoom 1 fits the frame, 2 is twice as close
     }
     // zoom about a screen point, keeping the world point under it fixed
     function zoomAt(mpp, sx, sy) {

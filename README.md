@@ -15,8 +15,8 @@ The map without the control panel, for a Webflow section.
 3. Add a Code Embed inside the section:
 
 ```html
-<div class="nature-map" style="width:100%;height:100%;min-height:480px"></div>
-<script src="https://cdn.jsdelivr.net/gh/mattintheocean/nature-map-embed@v1.0.0/nature-grid-embed.js" defer></script>
+<div class="nature-map" data-zoom="1" style="width:100%;height:100%;min-height:480px"></div>
+<script src="https://cdn.jsdelivr.net/gh/mattintheocean/nature-map-embed@v1.1.0/nature-grid-embed.js" defer></script>
 ```
 
 If more than one page uses the map, the `<script>` line can go in the site's footer code instead. The map only draws on the published site or in Preview, not in the Designer canvas.
@@ -34,6 +34,7 @@ Set these as attributes on the `div`, for example `data-recovery="0.3"`:
 | Attribute | Default | Meaning |
 |---|---|---|
 | `data-frame` | `city` | Starting view: `city` (the harbours) or `region` |
+| `data-zoom` | `1` | Starting zoom: `1` fits the frame, `2` is twice as close, `0.5` is further out (limited to the region's edge) |
 | `data-recovery` | `0.5` | Nature return level, 0 to 1 |
 | `data-cell` | `22` | Cell size in px |
 | `data-density` | `0.5` | Share of dense crosses |
@@ -53,4 +54,4 @@ From page code, `document.querySelector('.nature-map').__natureMap` exposes `set
 
 1. Edit `src/nature-grid-map.js`, run `./build.sh`, and check `test.html`.
 2. Commit, then tag a new version and push it: `git tag v1.0.1 && git push origin main v1.0.1`.
-3. Change `@v1.0.0` to the new tag in the Webflow embed and republish.
+3. Change the version (for example `@v1.1.0`) to the new tag in the Webflow embed and republish.
