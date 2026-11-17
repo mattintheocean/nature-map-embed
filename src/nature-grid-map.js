@@ -13,6 +13,13 @@
  *   data-seed="12345"          fixed pattern (default random on each load)
  *   data-credit="off"          hide the data credit (only if it is credited elsewhere on the page)
  *   data-zoom-buttons="off"    hide the + / − buttons
+ *
+ * Markers: put elements with a data-marker attribute inside the map element. Each one becomes a marker at
+ * data-lat / data-lng (or NZTM data-x / data-y), and its contents show in a card when the marker is clicked:
+ *   <div data-marker data-lat="-36.848" data-lng="174.763" hidden>
+ *     <div class="nature-map-number">520+</div>
+ *     <div class="nature-map-label">Community groups active across Auckland's conservation network</div>
+ *   </div>
  */
 (function () {
   'use strict';
@@ -75,6 +82,18 @@
     city:   { x0:1738000, x1:1782000, y0:5895000, y1:5935000 },   // Waitematā & Manukau harbours
   };
 
+  // WGS84 lat/long -> NZTM (EPSG:2193), transverse Mercator on GRS80
+  function toNZTM(lat, lng) {
+    const a = 6378137, f = 1 / 298.257222101, k0 = 0.9996, l0 = 173 * Math.PI / 180;
+    const e2 = f * (2 - f), e4 = e2 * e2, e6 = e4 * e2, ep2 = e2 / (1 - e2);
+    const p = lat * Math.PI / 180, s = Math.sin(p), c = Math.cos(p), t = Math.tan(p);
+    const N = a / Math.sqrt(1 - e2 * s * s), T = t * t, C = ep2 * c * c, A = (lng * Math.PI / 180 - l0) * c;
+    const M = a * ((1 - e2/4 - 3*e4/64 - 5*e6/256) * p - (3*e2/8 + 3*e4/32 + 45*e6/1024) * Math.sin(2*p)
+              + (15*e4/256 + 45*e6/1024) * Math.sin(4*p) - (35*e6/3072) * Math.sin(6*p));
+    return [1600000 + k0 * N * (A + (1 - T + C) * A**3 / 6 + (5 - 18*T + T*T + 72*C - 58*ep2) * A**5 / 120),
+            10000000 + k0 * (M + N * t * (A*A/2 + (5 - T + 9*C + 4*C*C) * A**4 / 24 + (61 - 58*T + T*T + 600*C - 330*ep2) * A**6 / 720))];
+  }
+
   // ---------- seeded perlin noise ----------
   function makeNoise(seed) {
     let s = seed >>> 0;
@@ -115,6 +134,30 @@
 .ngm-zoom button:disabled { opacity:.4; cursor:default; }
 .ngm-credit { position:absolute; left:10px; bottom:8px; max-width:calc(100% - 80px); pointer-events:none;
   font:10px/1.3 system-ui, sans-serif; color:rgba(20,90,60,.6); }
+.ngm-markers { position:absolute; inset:0; pointer-events:none; }
+.ngm-marker { position:absolute; left:0; top:0; margin:0; padding:0; border:0; border-radius:2px; cursor:pointer; pointer-events:auto;
+  background:#fbf8f1; box-shadow:0 1px 4px rgba(20,90,60,.3); transition:transform .15s, background .15s; }
+.ngm-marker::before, .ngm-marker::after { content:''; position:absolute; left:50%; top:50%; width:56%; height:2px;
+  background:#0f3b2a; transform:translate(-50%,-50%); transition:background .15s; }
+.ngm-marker::after { transform:translate(-50%,-50%) rotate(90deg); }
+.ngm-marker:hover { transform:scale(1.15); }
+.ngm-marker:focus-visible { outline:2px solid #0f3b2a; outline-offset:2px; }
+.ngm-marker.ngm-active { background:#0f3b2a; }
+.ngm-marker.ngm-active::before, .ngm-marker.ngm-active::after { background:#fbf8f1; }
+.ngm-pulse { position:absolute; inset:-2px; border:2px solid #fbf8f1; border-radius:3px; pointer-events:none;
+  animation:ngm-pulse 2.4s ease-out infinite; }
+.ngm-active .ngm-pulse { display:none; }
+@keyframes ngm-pulse { 0% { transform:scale(1); opacity:.9; } 70%, 100% { transform:scale(2); opacity:0; } }
+@media (prefers-reduced-motion: reduce) { .ngm-pulse { animation:none; opacity:0; } }
+.ngm-card { position:absolute; left:0; top:0; box-sizing:border-box; width:min(280px, calc(100% - 16px)); padding:36px 28px 32px;
+  background:#f9f6ee; color:#111; text-align:center; box-shadow:0 10px 30px rgba(20,90,60,.18); pointer-events:auto;
+  visibility:hidden; opacity:0; transform:translateY(6px) scale(.97); transition:opacity .18s, transform .18s, visibility 0s .18s; }
+.ngm-card.ngm-open { visibility:visible; opacity:1; transform:none; transition:opacity .18s, transform .18s; }
+.ngm-card .nature-map-number { font-size:64px; line-height:1; font-weight:800; letter-spacing:-.03em; margin:0 0 20px; }
+.ngm-card .nature-map-label { font-size:13px; line-height:1.35; font-weight:700; text-transform:uppercase; letter-spacing:.01em; }
+.ngm-close { position:absolute; top:6px; right:6px; width:28px; height:28px; padding:0; margin:0; border:0; background:none;
+  color:#666; font:400 20px/28px system-ui, sans-serif; cursor:pointer; }
+.ngm-close:hover { color:#111; }
 `;
   function injectCSS() {
     if (document.getElementById('ngm-style')) return;
@@ -136,6 +179,14 @@
       seed: num(d.seed, Math.floor(Math.random() * 1e9)),
     };
     const cs = cfg.cs;
+
+    // marker content is authored inside the map element; read it before adding the canvas
+    const markerSrc = [...el.querySelectorAll('[data-marker]')].map(m => {
+      m.remove();
+      const md = m.dataset;
+      const w = md.lat !== undefined && md.lng !== undefined ? toNZTM(+md.lat, +md.lng) : [+md.x, +md.y];
+      return { w, html:m.innerHTML, label:(md.title || m.textContent).replace(/\s+/g, ' ').trim() };
+    }).filter(m => isFinite(m.w[0]) && isFinite(m.w[1]));
 
     el.classList.add('ngm');
     const cv = document.createElement('canvas');
@@ -264,6 +315,71 @@
         }
         ctx.stroke();
       }
+      placeMarkers();
+    }
+
+    // ---------- markers and info card ----------
+    const layer = Object.assign(document.createElement('div'), { className:'ngm-markers' });
+    const card = Object.assign(document.createElement('div'), { className:'ngm-card' });
+    card.setAttribute('role', 'dialog');
+    const cardBody = document.createElement('div');
+    const closeBtn = Object.assign(document.createElement('button'), { type:'button', className:'ngm-close', textContent:'×' });
+    closeBtn.setAttribute('aria-label', 'Close');
+    card.append(closeBtn, cardBody);
+    let openIdx = -1;
+    const markers = markerSrc.map((m, i) => {
+      const b = Object.assign(document.createElement('button'), { type:'button', className:'ngm-marker' });
+      b.setAttribute('aria-label', m.label);
+      b.appendChild(Object.assign(document.createElement('span'), { className:'ngm-pulse' }));
+      b.addEventListener('click', () => openIdx === i ? closeCard() : openCard(i));
+      layer.appendChild(b);
+      return { ...m, b, sx:0, sy:0, on:false };
+    });
+    if (markers.length) { layer.appendChild(card); el.appendChild(layer); }
+
+    function openCard(i) {
+      if (openIdx >= 0) markers[openIdx].b.classList.remove('ngm-active');
+      openIdx = i;
+      cardBody.innerHTML = markers[i].html;
+      card.setAttribute('aria-label', markers[i].label);
+      markers[i].b.classList.add('ngm-active');
+      placeMarkers();
+      card.classList.add('ngm-open');
+      closeBtn.focus({ preventScroll:true });
+    }
+    function closeCard(refocus) {
+      if (openIdx < 0) return;
+      const b = markers[openIdx].b;
+      b.classList.remove('ngm-active');
+      card.classList.remove('ngm-open');
+      openIdx = -1;
+      if (refocus) b.focus({ preventScroll:true });
+    }
+    closeBtn.addEventListener('click', () => closeCard(true));
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') closeCard(true); });
+
+    // markers sit on the grid cell that holds their point, one cell in size
+    function placeMarkers() {
+      if (!markers.length) return;
+      const m = cs * view.mpp, size = Math.max(14, cs - 2);
+      for (const mk of markers) {
+        const cx = (Math.floor(mk.w[0] / m) + 0.5) * m, cy = (Math.floor(mk.w[1] / m) + 0.5) * m;
+        mk.sx = (cx - view.cx) / view.mpp + W/2; mk.sy = (view.cy - cy) / view.mpp + H/2;
+        mk.on = mk.sx > -cs && mk.sy > -cs && mk.sx < W + cs && mk.sy < H + cs;
+        const s = mk.b.style;
+        s.width = s.height = size + 'px';
+        s.left = (mk.sx - size/2) + 'px'; s.top = (mk.sy - size/2) + 'px';
+        s.display = mk.on ? '' : 'none';
+      }
+      if (openIdx < 0) return;
+      const mk = markers[openIdx];
+      if (!mk.on) { closeCard(); return; }
+      // above the marker, or below it when there isn't room; kept inside the map
+      const cw = card.offsetWidth, ch = card.offsetHeight, gap = size/2 + 12;
+      let top = mk.sy - gap - ch;
+      if (top < 8) top = Math.min(mk.sy + gap, H - ch - 8);
+      card.style.left = Math.min(W - cw - 8, Math.max(8, mk.sx - cw/2)) + 'px';
+      card.style.top = Math.max(8, top) + 'px';
     }
 
     let raf = 0;
@@ -341,7 +457,13 @@
       startGesture();
       if (e.pointerType === 'touch') { [mouse.x, mouse.y] = local(e); paint(1); schedule(); }
     });
-    const end = e => { if (pts.delete(e.pointerId)) startGesture(); };
+    const end = e => {
+      if (!pts.has(e.pointerId)) return;
+      // a click on the map (no drag) closes the info card
+      const [x, y] = local(e);
+      if (drag && pts.size === 1 && Math.hypot(x - drag.x, y - drag.y) < 5) closeCard();
+      pts.delete(e.pointerId); startGesture();
+    };
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);
     cv.addEventListener('pointermove', e => {
@@ -397,6 +519,8 @@
       setRecovery(v) { cfg.recovery = Math.min(1, Math.max(0, +v)); schedule(); },
       clearBrush() { boost.fill(0); schedule(); },
       resetView() { touched = false; fitFrame(); clampView(); schedule(); },
+      openMarker(i) { if (markers[i]) openCard(i); },
+      closeMarker() { closeCard(); },
     };
     el.__natureMap = api;
     return api;
