@@ -150,7 +150,7 @@
 .ngm-marker:focus-visible .ngm-cell { outline:2px solid #0f3b2a; outline-offset:3px; }
 /* the visible cell sits centred in a larger tap area: the reverse of the pattern, a dark cell with a pale cross */
 .ngm-cell { position:absolute; left:50%; top:50%; width:var(--s); height:var(--s); margin:calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
-  border-radius:2px; background:#0f3b2a; box-shadow:0 1px 6px rgba(15,59,42,.35); transition:transform .15s, background .15s; }
+  border-radius:3px; background:#0f3b2a; box-shadow:0 1px 6px rgba(15,59,42,.35); transition:transform .15s, background .15s; }
 .ngm-cell::before, .ngm-cell::after { content:''; position:absolute; left:50%; top:50%; width:var(--arm); height:var(--w);
   background:#fbf8f1; transform:translate(-50%,-50%); transition:background .15s; }
 .ngm-cell::after { transform:translate(-50%,-50%) rotate(90deg); }
@@ -160,13 +160,13 @@
 .ngm-pulse { position:absolute; inset:-2px; border:2px solid #0f3b2a; border-radius:3px; pointer-events:none;
   animation:ngm-pulse 2.4s ease-out infinite; }
 .ngm-active .ngm-pulse { display:none; }
-.ngm-tag { position:absolute; top:50%; left:calc(50% + var(--s) / 2 + 6px); transform:translateY(-50%); display:flex; align-items:center;
-  padding:5px 8px; border-radius:2px; background:#0f3b2a; color:#fbf8f1; white-space:nowrap; font-size:14px; line-height:1;
+.ngm-tag { position:absolute; top:50%; left:calc(50% + var(--s) / 2 + 9px); transform:translateY(-50%); display:flex; align-items:center;
+  padding:8px 12px; border-radius:3px; background:#0f3b2a; color:#fbf8f1; white-space:nowrap; font-size:21px; line-height:1;
   font-weight:800; letter-spacing:-.01em; box-shadow:0 1px 6px rgba(15,59,42,.25); transition:opacity .15s; }
-.ngm-flip .ngm-tag { left:auto; right:calc(50% + var(--s) / 2 + 6px); }
-.ngm-tag-label { display:inline-block; max-width:0; overflow:hidden; text-overflow:ellipsis; opacity:0; font-size:11px; font-weight:700;
+.ngm-flip .ngm-tag { left:auto; right:calc(50% + var(--s) / 2 + 9px); }
+.ngm-tag-label { display:inline-block; max-width:0; overflow:hidden; text-overflow:ellipsis; opacity:0; font-size:16.5px; font-weight:700;
   text-transform:uppercase; letter-spacing:.02em; transition:max-width .3s ease, opacity .2s, margin .3s; }
-.ngm-marker:hover .ngm-tag-label, .ngm-marker:focus-visible .ngm-tag-label { max-width:240px; opacity:1; margin-left:8px; }
+.ngm-marker:hover .ngm-tag-label, .ngm-marker:focus-visible .ngm-tag-label { max-width:360px; opacity:1; margin-left:12px; }
 .ngm-active .ngm-tag { opacity:0; }
 @keyframes ngm-pulse { 0% { transform:scale(1); opacity:.9; } 70%, 100% { transform:scale(2); opacity:0; } }
 @media (prefers-reduced-motion: reduce) { .ngm-pulse { animation:none; opacity:0; } }
@@ -402,10 +402,11 @@
     closeBtn.addEventListener('click', () => closeCard(true));
     el.addEventListener('keydown', e => { if (e.key === 'Escape') closeCard(true); });
 
-    // markers sit on the grid cell that holds their point, one cell in size
+    // markers sit centred on the grid cell that holds their point, 1.5 cells in size
+    const MARKER_SCALE = 1.5;
     function placeMarkers() {
       if (!markers.length) return;
-      const m = cs * view.mpp, size = Math.max(14, cs - 2), hit = Math.max(44, size + 12);
+      const m = cs * view.mpp, size = Math.round(Math.max(14, cs - 2) * MARKER_SCALE), hit = Math.max(44, size + 12);
       for (const mk of markers) {
         const cx = (Math.floor(mk.w[0] / m) + 0.5) * m, cy = (Math.floor(mk.w[1] / m) + 0.5) * m;
         mk.sx = (cx - view.cx) / view.mpp + W/2; mk.sy = (view.cy - cy) / view.mpp + H/2;
@@ -415,9 +416,9 @@
         s.left = (mk.sx - hit/2) + 'px'; s.top = (mk.sy - hit/2) + 'px';
         s.setProperty('--s', size + 'px');
         s.setProperty('--arm', Math.round(size * 0.62) + 'px');
-        s.setProperty('--w', Math.max(2, Math.round(cfg.weight * cs)) + 'px');
+        s.setProperty('--w', Math.max(3, Math.round(cfg.weight * cs * MARKER_SCALE)) + 'px');
         s.display = mk.on ? '' : 'none';
-        mk.b.classList.toggle('ngm-flip', mk.sx > W - 200);   // tag on the left near the right edge
+        mk.b.classList.toggle('ngm-flip', mk.sx > W - 300);   // tag on the left near the right edge
       }
       if (openIdx < 0) return;
       const mk = markers[openIdx];
@@ -452,7 +453,7 @@
         // fit every marker, leaving room around the edges and for the tags, which sit to the right
         const xs = markers.map(m => m.w[0]), ys = markers.map(m => m.w[1]);
         const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-        const PAD = 48, TAG = 110;
+        const PAD = 48, TAG = 165;
         view.mpp = Math.max((x1 - x0) / Math.max(1, W - 2*PAD - TAG), (y1 - y0) / Math.max(1, H - 2*PAD), MIN_MPP) / cfg.zoom;
         view.cx = (x0 + x1) / 2 + TAG/2 * view.mpp; view.cy = (y0 + y1) / 2;
         return;
