@@ -16,7 +16,7 @@ The map without the control panel, for a Webflow section.
 
 ```html
 <div class="nature-map" data-zoom="1" style="width:100%;height:100%;min-height:480px"></div>
-<script src="https://cdn.jsdelivr.net/gh/mattintheocean/nature-map-embed@v1.8.1/nature-grid-embed.js" defer></script>
+<script src="https://cdn.jsdelivr.net/gh/mattintheocean/nature-map-embed@v1.8.2/nature-grid-embed.js" defer></script>
 ```
 
 If more than one page uses the map, the `<script>` line can go in the site's footer code instead. The map only draws on the published site or in Preview, not in the Designer canvas.
@@ -35,7 +35,9 @@ Put one element with a `data-marker` attribute inside the map `div` for each mar
 <div class="nature-map" style="width:100%;height:100%;min-height:480px">
   <div data-marker data-lat="-36.848" data-lng="174.763" hidden>
     <div class="nature-map-number">520+</div>
-    <div class="nature-map-label">Community groups active across Auckland’s conservation network</div>
+    <div class="nature-map-label">Community groups across Auckland</div>
+    <div class="nature-map-text">Council funding has helped build a region-wide network of over 520 active community conservation groups.</div>
+    <div class="nature-map-source">Source: Auckland Council, Targeted Rates Highlights 2025/26</div>
   </div>
   <div data-marker data-lat="-36.786" data-lng="174.860" hidden>
     <div class="nature-map-number">40+</div>
@@ -45,7 +47,8 @@ Put one element with a `data-marker` attribute inside the map `div` for each mar
 ```
 
 - Get the coordinates by right-clicking a spot in Google Maps; the first number is `data-lat` and the second is `data-lng`.
-- `nature-map-number` and `nature-map-label` give the big figure and the uppercase caption. Other HTML, such as a paragraph or a link, also works inside the card.
+- `nature-map-number` and `nature-map-label` give the big figure and the uppercase caption. The hover tag shows just these two.
+- `nature-map-text` (optional) adds a sentence of context, and `nature-map-source` (optional) a small source line, which can hold a link. These show only in the card. Other HTML also works inside the card.
 - The card uses the page's font, so it picks up the Webflow site's typography.
 - Keep `hidden` on each marker element so its text doesn't flash on the page before the map loads.
 - Each marker is a dark grid cell with a tag showing its number. On hover the tag expands to show the caption.
@@ -80,5 +83,5 @@ From page code, `document.querySelector('.nature-map').__natureMap` exposes `set
 ## Releasing a change
 
 1. Edit `src/nature-grid-map.js`, run `./build.sh`, and check `test.html`.
-2. Commit, then tag a new version and push it: `git tag v1.8.2 && git push origin main v1.8.2`.
-3. Change the version (for example `@v1.8.1`) to the new tag in the Webflow embed and republish.
+2. Commit, then tag a new version and push it: `git tag v1.8.3 && git push origin main v1.8.3`.
+3. Change the version (for example `@v1.8.2`) to the new tag in the Webflow embed and republish.

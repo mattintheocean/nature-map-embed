@@ -23,8 +23,11 @@ window.LCDB.rle = "/w7+B/8K/gr/Af4F/wH+If8E/hT/Af4H/wL+C/8C/gf/Af4B/wH+jP8B/gz/C
  * data-lat / data-lng (or NZTM data-x / data-y), and its contents show in a card when the marker is clicked:
  *   <div data-marker data-lat="-36.848" data-lng="174.763" hidden>
  *     <div class="nature-map-number">520+</div>
- *     <div class="nature-map-label">Community groups active across Auckland's conservation network</div>
+ *     <div class="nature-map-label">Community groups across Auckland</div>
+ *     <div class="nature-map-text">Optional sentence of context, shown only in the card.</div>
+ *     <div class="nature-map-source">Optional source, e.g. <a href="…">Report name</a></div>
  *   </div>
+ * The hover tag uses only the number and the label.
  */
 (function () {
   'use strict';
@@ -173,12 +176,16 @@ window.LCDB.rle = "/w7+B/8K/gr/Af4F/wH+If8E/hT/Af4H/wL+C/8C/gf/Af4B/wH+jP8B/gz/C
 .ngm-active .ngm-tag { opacity:0; }
 @keyframes ngm-pulse { 0% { transform:scale(1); opacity:.9; } 70%, 100% { transform:scale(2); opacity:0; } }
 @media (prefers-reduced-motion: reduce) { .ngm-pulse { animation:none; opacity:0; } }
-.ngm-card { position:absolute; left:0; top:0; box-sizing:border-box; width:min(280px, calc(100% - 16px)); padding:36px 28px 32px;
+.ngm-card { position:absolute; left:0; top:0; box-sizing:border-box; width:min(300px, calc(100% - 16px)); padding:36px 28px 28px;
   background:#f9f6ee; color:#111; text-align:center; box-shadow:0 10px 30px rgba(20,90,60,.18); pointer-events:auto;
   visibility:hidden; opacity:0; transform:translateY(6px) scale(.97); transition:opacity .18s, transform .18s, visibility 0s .18s; }
 .ngm-card.ngm-open { visibility:visible; opacity:1; transform:none; transition:opacity .18s, transform .18s; }
 .ngm-card .nature-map-number { font-size:64px; line-height:1; font-weight:800; letter-spacing:-.03em; margin:0 0 20px; }
 .ngm-card .nature-map-label { font-size:13px; line-height:1.35; font-weight:700; text-transform:uppercase; letter-spacing:.01em; }
+.ngm-card .nature-map-text { font-size:14px; line-height:1.45; margin:14px 0 0; }
+.ngm-card .nature-map-source { font-size:11px; line-height:1.4; color:#6e6a60; margin:16px 0 0; }
+.ngm-card .nature-map-source a { color:inherit; text-decoration:underline; text-underline-offset:2px; }
+.ngm-card .nature-map-source a:hover { color:#111; }
 .ngm-close { position:absolute; top:6px; right:6px; width:28px; height:28px; padding:0; margin:0; border:0; background:none;
   color:#666; font:400 20px/28px system-ui, sans-serif; cursor:pointer; }
 .ngm-close:hover { color:#111; }
@@ -210,7 +217,8 @@ window.LCDB.rle = "/w7+B/8K/gr/Af4F/wH+If8E/hT/Af4H/wL+C/8C/gf/Af4B/wH+jP8B/gz/C
       const md = m.dataset;
       const w = md.lat !== undefined && md.lng !== undefined ? toNZTM(+md.lat, +md.lng) : [+md.x, +md.y];
       const text = sel => { const t = m.querySelector(sel); return t ? t.textContent.replace(/\s+/g, ' ').trim() : ''; };
-      return { w, html:m.innerHTML, label:(md.title || m.textContent).replace(/\s+/g, ' ').trim(),
+      return { w, html:m.innerHTML, label:md.title || [text('.nature-map-number'), text('.nature-map-label')].join(' ').trim()
+                 || m.textContent.replace(/\s+/g, ' ').trim(),
                tag:md.tag || text('.nature-map-number'), tagLabel:md.tagLabel || text('.nature-map-label') };
     }).filter(m => isFinite(m.w[0]) && isFinite(m.w[1]));
 
